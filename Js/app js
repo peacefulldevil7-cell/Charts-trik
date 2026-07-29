@@ -1,170 +1,309 @@
 // js/app.js
-import DataLoader from '../modules/dataLoader.js';
-import ChartView from '../modules/chartView.js';
-import RuleEngine from '../modules/ruleEngine.js';
-import Storage from '../modules/storage.js';
-import UI from '../modules/ui.js';
-import Report from '../modules/report.js';
-import rulesRegistry from '../rules/registry.js';
+// Simple To-Do app using LocalStorage with optional URL per task
+const LS_KEY = 'todo.tasks.v1';
 
-const state = {
-  data: null,          // loaded table: { columns:[], rows: [{date, values:[]}] }
-  chart: null,
-  rules: [],
-  analysisResults: null
-};
+const $ = (sel, ctx=document) => ctx.querySelector(sel);
+const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
 
-async function init(){
-  // Initialize UI and storage
-  await Storage.init();
-  UI.bindUI({
-    onUpload: openFilePicker,
-    onPasteOpen: () => UI.showPasteModal(),
-    onPasteImport: handlePaste,
-    onUploadRule: handleUploadRuleFile,
-    onRunAnalysis: runAnalysis,
-    onSaveAnalysis: saveAnalysis,
-    onExportExcel: exportExcelReport,
-    onPrintReport: () => window.print(),
-    onSearchNumber: searchNumber,
-    onToggleTheme: UI.toggleTheme
-  });
+const form = $('#todo-form');
+const input = $('#todo-input');
+const urlInput = $('#url-input');
+const listEl = $('#todo-list');
+const itemsLeftEl = $('#items-left');
+const filters = $$('.filter-btn');
+const clearCompletedBtn = $('#clear-completed');
+const clearAllBtn = $('#clear-all');
+const exportBtn = $('#export-json');
+const importBtn = $('#import-json');
+const fileInput = $('#file-input');
 
-  // Load built-in rules from registry
-  state.rules = await rulesRegistry.getAllRules();
-  // also load uploaded rules saved in IndexedDB
-  const userRules = await Storage.getUserRules();
-  state.rules.push(...userRules);
+let tasks = []; // { id, text, url, completed, createdAt, updatedAt }
+let filter = 'all';
 
-  UI.renderRulesList(state.rules, toggleRuleEnabled);
-
-  // init Chart (empty)
-  state.chart = new ChartView(document.getElementById('chartCanvas'));
-  UI.showMessage('Ready. Upload or paste historical data to start.', 'info');
+function uid() {
+  return 't_' + Math.random().toString(36).slice(2,9);
 }
 
-async function openFilePicker(){
-  const input = document.getElementById('fileInput');
-  input.value = '';
-  input.onchange = async (e) => {
-    const f = e.target.files[0];
-    if(!f) return;
-    try{
-      const table = await DataLoader.loadFile(f);
-      state.data = table;
-      UI.renderTable(table, onTableCellClick);
-      state.chart.loadData(table);
-      UI.showMessage('Data loaded: ' + (table.rows.length || 0) + ' rows', 'success');
-    }catch(err){
-      console.error(err);
-      UI.showMessage('Error loading file: ' + err.message, 'error');
-    }
-  };
-  input.click();
+function save() {
+  localStorage.setItem(LS_KEY, JSON.stringify(tasks));
 }
 
-async function handlePaste(text){
-  try{
-    const table = DataLoader.parseClipboard(text);
-    state.data = table;
-    UI.renderTable(table, onTableCellClick);
-    state.chart.loadData(table);
-    UI.hidePasteModal();
-    UI.showMessage('Data imported from paste', 'success');
-  }catch(err){
-    UI.showMessage('Paste import failed: ' + err.message, 'error');
+function load() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    tasks = raw ? JSON.parse(raw) : [];
+  } catch(e) {
+    tasks = [];
+    console.error('Failed to load tasks', e);
   }
 }
 
-function onTableCellClick({rowIndex, colIndex, value}){
-  // simple action: highlight on chart (if a series)
-  UI.showMessage(`Cell [${rowIndex},${colIndex}] = ${value}`, 'info');
-  state.chart.highlightCell(rowIndex, colIndex);
+function addTask(text, url) {
+  const t = { id: uid(), text: text.trim(), url: url ? String(url).trim() : '', completed: false, createdAt: Date.now(), updatedAt: Date.now() };
+  tasks.unshift(t); // newest first
+  save();
+  render();
 }
 
-async function handleUploadRuleFile(){
-  const input = document.getElementById('ruleFileInput');
-  input.value = '';
-  input.onchange = async (e) => {
-    const f = e.target.files[0];
-    if(!f) return;
-    try{
-      const text = await f.text();
-      // Validate: module must export default rule object
-      const blob = new Blob([text], { type: 'text/javascript' });
-      const url = URL.createObjectURL(blob);
-      const module = await import(url);
-      URL.revokeObjectURL(url);
-      const rule = module.default;
-      if(!rule || !rule.id) throw new Error('Uploaded module must export default rule object with id.');
-      // Save to IndexedDB
-      await Storage.saveUserRule(rule.id, text);
-      state.rules.push(rule);
-      UI.renderRulesList(state.rules, toggleRuleEnabled);
-      UI.showMessage('Rule uploaded and saved: ' + rule.name, 'success');
-    }catch(err){
-      console.error(err);
-      UI.showMessage('Rule upload failed: ' + err.message, 'error');
+function updateTask(id, patch) {
+  const idx = tasks.findIndex(t => t.id === id);
+  if(idx === -1) return;
+  tasks[idx] = { ...tasks[idx], ...patch, updatedAt: Date.now() };
+  save();
+  render();
+}
+
+function removeTask(id) {
+  tasks = tasks.filter(t => t.id !== id);
+  save();
+  render();
+}
+
+function clearCompleted() {
+  tasks = tasks.filter(t => !t.completed);
+  save();
+  render();
+}
+
+function clearAll() {
+  if(!confirm('Clear all tasks? This cannot be undone.')) return;
+  tasks = [];
+  save();
+  render();
+}
+
+function applyFilter(f) {
+  filter = f;
+  filters.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === f);
+    btn.setAttribute('aria-selected', btn.dataset.filter === f ? 'true' : 'false');
+  });
+  render();
+}
+
+function render() {
+  // filter
+  let visible = tasks;
+  if(filter === 'active') visible = tasks.filter(t => !t.completed);
+  if(filter === 'completed') visible = tasks.filter(t => t.completed);
+
+  // render list
+  listEl.innerHTML = '';
+  visible.forEach(task => {
+    const li = document.createElement('li');
+    li.className = 'todo-item' + (task.completed ? ' completed' : '');
+    li.dataset.id = task.id;
+
+    // left (checkbox + text)
+    const left = document.createElement('div');
+    left.className = 'todo-left';
+
+    const chk = document.createElement('button');
+    chk.className = 'todo-checkbox' + (task.completed ? ' checked' : '');
+    chk.setAttribute('aria-pressed', String(task.completed));
+    chk.title = task.completed ? 'Mark as active' : 'Mark as completed';
+    chk.onclick = () => updateTask(task.id, { completed: !task.completed });
+
+    chk.innerHTML = task.completed ? '✔' : '';
+
+    const text = document.createElement('div');
+    text.className = 'todo-text';
+    text.textContent = task.text;
+    text.tabIndex = 0;
+    text.setAttribute('role','textbox');
+    text.setAttribute('aria-label','Task text');
+    // double click or Enter to edit inline
+    text.ondblclick = () => enableEditing(text, task.id);
+    text.onkeydown = (e) => {
+      if(e.key === 'Enter') { e.preventDefault(); enableEditing(text, task.id); }
+    };
+
+    left.appendChild(chk);
+    left.appendChild(text);
+
+    // meta and URL (below)
+    const meta = document.createElement('div');
+    meta.className = 'item-meta';
+    meta.textContent = new Date(task.createdAt).toLocaleString();
+
+    const bottom = document.createElement('div');
+    if(task.url){
+      const urlA = document.createElement('a');
+      urlA.href = task.url;
+      urlA.target = '_blank';
+      urlA.rel = 'noopener';
+      urlA.className = 'task-url';
+      urlA.textContent = task.url;
+      bottom.appendChild(urlA);
+    }
+
+    left.appendChild(meta);
+    left.appendChild(bottom);
+
+    // actions
+    const actions = document.createElement('div');
+    actions.className = 'item-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'icon-btn';
+    editBtn.title = 'Edit';
+    editBtn.innerHTML = '✎';
+    editBtn.onclick = () => enableEditing(text, task.id);
+
+    const manageBtn = document.createElement('button');
+    manageBtn.className = 'icon-btn';
+    manageBtn.title = 'Edit URL';
+    manageBtn.innerHTML = '🔗';
+    manageBtn.onclick = () => {
+      const cur = task.url || '';
+      const nv = prompt('Edit URL (leave blank to remove):', cur);
+      if(nv === null) return;
+      updateTask(task.id, { url: nv.trim() });
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'icon-btn';
+    delBtn.title = 'Delete';
+    delBtn.innerHTML = '🗑';
+    delBtn.onclick = () => {
+      if(confirm('Delete this task?')) removeTask(task.id);
+    };
+
+    actions.appendChild(editBtn);
+    actions.appendChild(manageBtn);
+    actions.appendChild(delBtn);
+
+    li.appendChild(left);
+    li.appendChild(actions);
+    listEl.appendChild(li);
+  });
+
+  const leftCount = tasks.filter(t => !t.completed).length;
+  itemsLeftEl.textContent = `${leftCount} item${leftCount !== 1 ? 's' : ''} left`;
+}
+
+function enableEditing(textEl, taskId) {
+  const orig = textEl.textContent;
+  textEl.contentEditable = "true";
+  textEl.focus();
+  // move caret to end
+  document.execCommand('selectAll', false, null);
+  document.getSelection().collapseToEnd();
+
+  function finish(saveChanges) {
+    textEl.contentEditable = "false";
+    textEl.removeEventListener('blur', onBlur);
+    textEl.removeEventListener('keydown', onKey);
+    if(saveChanges) {
+      const newText = textEl.textContent.trim();
+      if(newText === '') {
+        // empty -> delete
+        if(confirm('Task is empty. Delete it?')) removeTask(taskId);
+        else updateTask(taskId, { text: orig });
+      } else {
+        updateTask(taskId, { text: newText });
+      }
+    } else {
+      textEl.textContent = orig;
+    }
+  }
+
+  function onBlur() { finish(true); }
+  function onKey(e) {
+    if(e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if(e.key === 'Escape') { finish(false); }
+  }
+
+  textEl.addEventListener('blur', onBlur);
+  textEl.addEventListener('keydown', onKey);
+}
+
+function exportJSON() {
+  const dataStr = JSON.stringify(tasks, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `todo-export-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJSONFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if(!Array.isArray(parsed)) throw new Error('JSON must be an array of tasks');
+      // Basic validation and normalization
+      const normalized = parsed.map(p => ({
+        id: p.id || uid(),
+        text: String(p.text || '').trim(),
+        url: p.url || '',
+        completed: !!p.completed,
+        createdAt: p.createdAt ? Number(p.createdAt) : Date.now(),
+        updatedAt: p.updatedAt ? Number(p.updatedAt) : Date.now()
+      })).filter(t => t.text);
+      // Merge: prepend imported items
+      tasks = normalized.concat(tasks);
+      save();
+      render();
+      alert(`Imported ${normalized.length} tasks`);
+    } catch(err) {
+      alert('Failed to import: ' + err.message);
     }
   };
-  input.click();
+  reader.readAsText(file);
 }
 
-function toggleRuleEnabled(ruleId, enabled){
-  const r = state.rules.find(x=>x.id===ruleId);
-  if(r) r.enabled = enabled;
-}
+// Event wiring
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if(!text) return;
+  const url = urlInput ? urlInput.value.trim() : '';
+  addTask(text, url);
+  input.value = '';
+  if(urlInput) urlInput.value = '';
+  input.focus();
+});
 
-async function runAnalysis(){
-  if(!state.data){ UI.showMessage('No data loaded', 'error'); return; }
-  UI.showMessage('Running analysis...', 'info');
-  const engine = new RuleEngine(state.rules);
-  const context = { ui: UI, chart: state.chart, storage: Storage };
-  const results = await engine.runAll(state.data, context);
-  state.analysisResults = results;
-  UI.renderReport(results, state.rules);
-  // apply highlights to table and chart from results
-  UI.applyHighlights(results);
-  state.chart.applyHighlights(results);
-  UI.showMessage('Analysis complete', 'success');
-}
+filters.forEach(btn => {
+  btn.addEventListener('click', () => applyFilter(btn.dataset.filter));
+});
 
-async function saveAnalysis(){
-  if(!state.analysisResults) { UI.showMessage('No analysis to save', 'error'); return; }
-  const name = prompt('Save analysis name', 'Analysis ' + new Date().toLocaleString());
-  if(!name) return;
-  const record = {
-    id: 'analysis-' + Date.now(),
-    name,
-    timestamp: new Date().toISOString(),
-    data: state.data,
-    rules: state.rules.map(r=>({id:r.id,name:r.name,enabled:!!r.enabled})),
-    results: state.analysisResults
-  };
-  await Storage.saveAnalysis(record.id, record);
-  UI.showMessage('Analysis saved', 'success');
-}
+clearCompletedBtn.addEventListener('click', () => {
+  clearCompleted();
+});
 
-async function exportExcelReport(){
-  if(!state.analysisResults) { UI.showMessage('No analysis to export', 'error'); return; }
-  Report.exportExcel(state.analysisResults);
-}
+clearAllBtn.addEventListener('click', () => clearAll());
 
-async function searchNumber(){
-  const n = document.getElementById('searchNumber').value.trim();
-  if(!n){ UI.showMessage('Enter number to search', 'error'); return; }
-  const results = [];
-  const table = state.data;
-  if(!table){ UI.showMessage('No data loaded', 'error'); return; }
-  table.rows.forEach((r,ri)=>{
-    r.values.forEach((v,ci)=>{
-      if(String(v) === n){
-        const date = r.date || null;
-        results.push({row:ri,col:ci,value:v,date});
-      }
-    });
-  });
-  UI.renderSearchResults(results);
-}
+exportBtn.addEventListener('click', exportJSON);
 
-window.addEventListener('load', init);
+importBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if(f) importJSONFile(f);
+  fileInput.value = '';
+});
+
+// keyboard shortcuts: Ctrl+N focus input, Ctrl+E export, Ctrl+I import
+window.addEventListener('keydown', (e) => {
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+    e.preventDefault(); input.focus();
+  }
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+    e.preventDefault(); exportJSON();
+  }
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+    e.preventDefault(); fileInput.click();
+  }
+});
+
+// init
+(function boot() {
+  load();
+  render();
+  // apply default filter state
+  applyFilter('all');
+})();
