@@ -1,0 +1,77 @@
+:root{
+  --bg:#0f1724;
+  --card:#0b1220AA;
+  --glass:#ffffff12;
+  --accent:#4ad2ff;
+  --muted:#9aa7b2;
+  --text:#e6eef6;
+  --radius:12px;
+  --glass-border: rgba(255,255,255,0.06);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+*{box-sizing:border-box}
+html,body,#app{height:100%;margin:0;padding:0;background:linear-gradient(180deg,#071024 0%, #071a2b 100%);color:var(--text)}
+.app{display:flex;height:100vh;gap:18px}
+.sidebar{
+  width:260px;padding:18px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));backdrop-filter: blur(6px);
+  border-radius:16px;border:1px solid var(--glass-border);display:flex;flex-direction:column;gap:16px
+}
+.brand{font-weight:700;font-size:18px;display:flex;align-items:center;gap:8px}
+.brand .dot{color:var(--accent);font-size:22px}
+.menu{display:flex;flex-direction:column;gap:8px}
+.menu-btn{background:transparent;border:0;color:var(--text);padding:10px;border-radius:10px;text-align:left;cursor:pointer}
+.menu-btn:hover{background:rgba(255,255,255,0.02)}
+.switch-row{margin-top:auto;display:flex;align-items:center;gap:12px}
+.switch{position:relative;display:inline-block;width:44px;height:24px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;border-radius:24px;transition:.2s}
+.slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s}
+.switch input:checked + .slider{background:var(--accent)}
+.switch input:checked + .slider:before{transform:translateX(20px)}
+
+.main{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.search input{padding:10px;border-radius:10px;border:1px solid var(--glass-border);background:transparent;color:var(--text)}
+.actions button{margin-left:8px;padding:10px 12px;border-radius:10px;border:0;cursor:pointer}
+.primary{background:linear-gradient(90deg,var(--accent),#7ef1c6);color:#012;box-shadow:0 6px 18px rgba(74,210,255,0.08)}
+
+.dashboard{display:flex;gap:18px;align-items:flex-start}
+.left-column{flex:1;display:flex;flex-direction:column;gap:18px}
+.right-column{width:420px;display:flex;flex-direction:column;gap:18px}
+
+.card{background:var(--card);padding:14px;border-radius:var(--radius);border:1px solid var(--glass-border);backdrop-filter: blur(6px)}
+.card h3{margin:0 0 10px 0}
+.chart-area{height:320px;padding:6px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.015));border-radius:10px}
+.chart-controls{display:flex;gap:8px;align-items:center;padding-top:8px;flex-wrap:wrap}
+.series-list{display:flex;gap:6px;flex-wrap:wrap}
+
+.table-container{max-height:320px;overflow:auto;border-radius:8px;padding:6px;background:rgba(0,0,0,0.12)}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table thead th{position:sticky;top:0;background:rgba(255,255,255,0.03);padding:8px;text-align:left}
+.table td{padding:8px;border-bottom:1px dashed rgba(255,255,255,0.03)}
+
+.rules-list{display:flex;flex-direction:column;gap:8px;max-height:220px;overflow:auto}
+.rule-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:linear-gradient(180deg, transparent, rgba(255,255,255,0.01))}
+.rule-item .meta{flex:1;margin-left:10px}
+.rule-item input[type=checkbox]{transform:scale(1.2)}
+
+.report-container{max-height:260px;overflow:auto;padding:8px;background:rgba(255,255,255,0.02);border-radius:8px;font-size:14px}
+.report-actions{display:flex;gap:8px;margin-top:8px}
+
+.search-panel{display:flex;flex-direction:column;gap:8px}
+.search-results{max-height:150px;overflow:auto;padding:6px;background:rgba(0,0,0,0.06);border-radius:6px}
+
+.footer{padding:12px;text-align:center;color:var(--muted);font-size:13px;margin-top:auto}
+
+/* Small screens */
+@media (max-width:1000px){
+  .sidebar{display:none}
+  .right-column{width:100%}
+  .dashboard{flex-direction:column}
+}
+
+/* Highlight classes used by rules */
+.highlight-cell{background:linear-gradient(90deg,#faffb6, #ffd3b6);border-radius:6px}
+.highlight-action{background:rgba(74,210,255,0.12);border-left:3px solid var(--accent)}
+.highlight-redfigure{background:rgba(255,80,80,0.08);border-left:3px solid rgba(255,80,80,0.4)}
